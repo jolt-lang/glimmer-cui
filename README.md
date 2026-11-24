@@ -52,23 +52,6 @@ lifecycle:
   serial). CUI's per-id state (focus, caret, animation) follows the node
   through keyed reorders, and two buttons with the same label don't collide.
 
-## Measured
-
-`jolt bench` runs the same UI (a header plus N rows of text, badge, switch and
-button) both ways on the same bare context, with the software renderer
-attached. `jolt floor` runs it straight from C. Mean frame time in µs, on a
-4-core Linux box:
-
-| rows (widgets) | C floor | cui-jolt direct, idle | glimmer-cui, idle | direct, 1 change/frame | glimmer-cui, 1 change/frame |
-|---|---|---|---|---|---|
-| 10 (52) | 100 | 870 | 177 (4.9x) | 743 | 427 (1.7x) |
-| 50 (252) | 356 | 3,322 | 667 (5.0x) | 3,170 | 911 (3.5x) |
-| 200 (1,002) | 1,095 | 13,001 | 2,369 (5.5x) | 12,948 | 2,666 (4.9x) |
-
-At 1,000 widgets an idle frame costs 2.2x the C floor, against 11.9x for
-direct mode. A frame with a change adds glimmer's re-render of the one
-affected component, about 250-300 µs here.
-
 ## Tags
 
 | Tag | Props (beyond the CUI options struct's own) | Events |
@@ -153,18 +136,6 @@ bare CUI context (CUI's own embedding path, which needs no window):
 
 While a session is open the backend counts as running, so re-renders are
 scheduled exactly as in the window loop.
-
-## Layout
-
-- `glimmer-cui.node`: retained nodes, encoding arenas, state cells, deferred
-  release (memory a node lets go of is freed two frames later, after CUI has
-  painted the frame that could still read it), and post-walk events.
-- `glimmer-cui.widgets`: the tag table. Each spec compiles props into a replay
-  closure.
-- `glimmer-cui.core`: the glimmer backend, the frame driver (`render-frame!`),
-  the window loop and the escape hatches.
-- `glimmer-cui.headless`: bare-context sessions, input injection and
-  screenshots.
 
 ## Not done yet
 
