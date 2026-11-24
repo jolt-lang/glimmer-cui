@@ -1,7 +1,8 @@
 (ns glimmer-cui.test-runner
   (:require [clojure.test :as t]
-            glimmer-cui.core-test))
+            glimmer-cui.core-test
+            glimmer-cui.generated-test))
 
 (defn -main [& _]
-  (let [{:keys [fail error]} (t/run-tests 'glimmer-cui.core-test)]
+  (let [{:keys [fail error]} (t/run-tests 'glimmer-cui.core-test 'glimmer-cui.generated-test)]
     (System/exit (if (zero? (+ fail error)) 0 1))))

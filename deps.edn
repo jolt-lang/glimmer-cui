@@ -37,6 +37,8 @@
                          "-DCUI_BUILD_SHARED=ON" "-DCUI_BUILD_EXAMPLES=OFF" "-DCUI_BUILD_TESTS=OFF")
                   (shell "cmake" "--build" "native/build" "--config" "Release" "--parallel")
                   (fs/copy (str "native/build/" lib-file) (str "native/" lib-file) {:replace-existing true}))}
+  gen   {:doc "Regenerate src/glimmer_cui/tags.clj from native/CUI's headers (needs pycparser)"
+         :task (shell "python3" "gen/gen_tags.py")}
   test  {:doc "Headless test suite (no display needed)" :task "jolt -M:test"}
   bench {:doc "Per-frame cost: glimmer-cui replay vs cui-jolt direct mode" :task "jolt -M:bench"}
   floor {:doc "The same UI as bench, submitted straight from C: the floor any binding sits on"

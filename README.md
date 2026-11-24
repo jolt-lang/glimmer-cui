@@ -54,25 +54,78 @@ lifecycle:
 
 ## Tags
 
-| Tag | Props (beyond the CUI options struct's own) | Events |
-|---|---|---|
-| `:column` `:row` `:box` | `cui_box` options (`:pad :gap :width …`) | |
-| `:card` `:scroll` | `cui_card_opts`, `cui_scroll_opts` | |
-| `:dialog` `:dialog-footer` | `:title`, `:open` | `:on-close` (Escape, scrim, x) |
-| `:text` `:badge` | `:text` | |
-| `:heading` | `:text`, `:level` | |
-| `:label` `:secondary` | `:label` / `:text` | |
-| `:button` | `:label` | `:on-click` |
-| `:switch` `:checkbox` | `:label`, `:checked` | `:on-change bool` |
-| `:slider` | `:label`, `:value`, `:min`, `:max` | `:on-change float` |
-| `:input` | `:value`, `:max-length` (bytes, default 1024) | `:on-change str`, `:on-submit str` |
-| `:progress` | `:value` | |
-| `:spacer` `:separator` | | |
+Every CUI component is a tag: 238 leaves and 36 containers. `jolt gen`
+generates the table (`src/glimmer_cui/tags.clj`) from CUI's headers.
+cui-jolt's `gen/gen.py` classifies each parameter, so a tag's props follow
+the same rules as `cui.core`'s arguments. The tag is the C name minus `cui_`
+and `_ex`, in kebab case: `cui_date_picker_ex` is `:date-picker` and the
+`cui_dialog` scope is `:dialog`.
 
-Other props go into the widget's CUI options struct, using cui-jolt's
-conventions: keywords for enums and icons, `:fill`/`[:pct 50]` sizes, colors
-as tokens or hex. An unknown option throws an error that lists the valid ones.
-Bare strings render as `:text`.
+```clojure
+[:tabs {:items ["Overview" "Schedule"] :index @tab :on-change #(reset! tab %)}]
+[:line-chart {:series [{:name "Load" :values @samples}] :labels days :height 180}]
+[:date-picker {:value {:year 2026 :month 11 :day 23} :on-change #(reset! due %)}]
+[:toggle-group {:labels ["Mo" "Tu" "We"] :values [true false true] :on-change #(reset! days %)}]
+[:sheet {:title "Settings" :open @open :on-close #(reset! open false)} ...]
+```
+
+![dashboard example](docs/dashboard.png)
+
+**Props.** A positional C parameter becomes the prop with its name in kebab
+case. Every other prop goes into the widget's CUI options struct, using
+cui-jolt's conventions: keywords for enums and icons, `:fill`/`[:pct 50]`
+sizes, colors as tokens or hex. An unknown option throws an error that lists
+the valid ones. Bare strings render as `:text`.
+
+- **Arrays** are collections. A `char **` plus its count is a vector of
+  strings (`:items`). A struct array plus its count is a vector of maps
+  (`:series`, `:steps`). Counts inside option structs are filled in, as in
+  cui-jolt.
+- **Out-parameters** are node-owned C cells, seeded from their prop: a
+  scalar (`:index`), a struct as a map (`:value` of a date or color picker),
+  an array from a vector (a toggle group's `:values`), or a text buffer
+  (`:max-length` bytes, default 1024). A patch overwrites a cell only when its
+  prop changed, so a re-render never clobbers an edit in progress.
+- **Editable arrays** (`kv-editor`, `curve-editor`, `query-builder`, …) take
+  `pairs`/`keys` as a vector and get room for `:capacity` elements (default
+  twice the count, at least 16). Rows the user adds come back in `:on-change`.
+- **Atoms inside option structs**, such as `{:vote vote}` for
+  `:response-actions` or `{:selected sel}` for `:commit-graph`, sync both
+  ways. Each frame pushes an atom's change to C. After the walk, CUI's edits
+  are written back to the atom.
+- Inline `char[n]` fields (a kv pair's key) take and give strings as UTF-8.
+
+**Events.**
+
+| Handler | Fires |
+|---|---|
+| `:on-change v` | an out-parameter changed (CUI or the user edited it). With several, `:on-<prop>-change` (`:on-lo-change`, `:on-hour-change`) |
+| `:on-close` | an `:open` cell went false (Escape, scrim, close button) |
+| `:on-click` | a leaf or non-conditional container returned true (clicked, activated) |
+| `:on-submit str` | a text field returned `CUI_SUBMITTED` |
+| `:on-result v` | any other return (an int, an enum, a result struct as a map) differs from the previous frame's |
+
+`:on-result` fires on each change, so a one-frame result such as a path
+bar's `{:clicked 0}` fires again when it returns to `{:clicked -1}`.
+
+**Id scopes.** A generated widget that takes an `id` gets its own CUI id
+scope unless you pass `:id`. With an explicit `:id` it stays in its parent's
+scope, so a CUI call naming that id can reach it, e.g.
+`(gc/with-ui #(ui/popover-open % "pop"))` for `[:popover {:id "pop"} ...]`.
+Leaves without an `id` parameter always get their own scope.
+
+**Hand-written tags** take precedence where they read better: `:switch`
+and `:checkbox` use `:checked`, and `:label`/`:secondary`/`:heading` use
+`:label`/`:text`. They are `:column` `:row` `:box` `:card` `:scroll`
+`:dialog` `:dialog-footer` `:text` `:badge` `:heading` `:label`
+`:secondary` `:button` `:switch` `:checkbox` `:slider` `:input` `:progress`
+`:spacer` `:separator`.
+
+**Left out.** A few CUI protocols decide their children mid-frame: data grid
+and tree table rows, kanban columns and drops, the node editor, virtual
+lists, swipe items, reorderable lists and card stacks. Toasts are actions,
+not components. Use `:cui/immediate` for the protocols and `with-ui` for
+toasts.
 
 ## Escape hatches
 
@@ -113,8 +166,10 @@ jolt test       # headless suite: bare context, synthetic input, no display
 jolt bench      # glimmer-cui vs cui-jolt direct mode, per frame
 jolt floor      # the same UI from C
 jolt shots      # render the examples to target/*.png with the software renderer
+jolt gen        # regenerate the tag table from native/CUI (needs pycparser)
 jolt -M:examples -m glimmer-cui.hello      # needs a display
 jolt -M:examples -m glimmer-cui.settings   # needs a display
+jolt -M:examples -m glimmer-cui.dashboard  # needs a display; a thread ticks the chart
 ```
 
 `a8f71c0` is the CUI commit cui-jolt's bindings were generated from.
@@ -139,10 +194,10 @@ scheduled exactly as in the window loop.
 
 ## Not done yet
 
-- The tag table is hand-written and covers about 20 of CUI's ~150 components.
-  The rest could be generated from cui-jolt's `gen/gen.py` metadata (functions,
-  option structs, out-parameter kinds), the way `cui.core` is.
-- The window loop (`run-app`) and the wake have not been run here: this box
-  has no display. Everything behind `render-frame!` is covered headlessly.
-- Array-valued props (charts, tabs, selects) and struct out-parameters (date
-  and color pickers) aren't mapped yet.
+- The window loop (`run-app`) and the wake have not been run on a display.
+  Everything behind `render-frame!` is covered headlessly. The dashboard
+  example checks both: its chart moves once a second only if a `swap!` from
+  the ticker thread wakes the idle loop.
+- The mid-frame protocols listed under Tags have no tags. They need
+  per-frame values passed to children, which glimmer's retained tree doesn't
+  express.

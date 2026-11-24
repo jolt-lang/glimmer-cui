@@ -89,7 +89,7 @@
       (testing "a re-render that repeats the old prop leaves the user's edit alone"
         (swap! other inc)
         (h/step! s 2)
-        (is (false? (n/read-cell @sw)))))))
+        (is (false? (n/read-cell @sw :checked)))))))
 
 (deftest a-changed-prop-overwrites-the-cell
   (let [on (r/atom true) sw (atom nil)]
@@ -97,7 +97,7 @@
       (h/step! s)
       (reset! on false)
       (h/step! s)
-      (is (false? (n/read-cell @sw))))))
+      (is (false? (n/read-cell @sw :checked))))))
 
 (deftest input-typing-and-enter
   (let [text (r/atom "hi") submitted (atom nil) in (atom nil)]

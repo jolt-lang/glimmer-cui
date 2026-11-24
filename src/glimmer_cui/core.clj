@@ -91,22 +91,24 @@
   compiled replay `e` once per props change, so a frame does no lookups, no
   prop checks and no exception frames per node.
 
-  Leaves get their own id scope (the node's serial), so CUI's per-id state
-  (focus, animation, an input's caret) follows the node for its whole life
-  and two buttons with one label never collide. A container's children are
-  read when it replays, so appends and moves need no recompile."
-  [node e ref?]
-  (let [id (:id node)]
-    (if (fn? e)
-      (if ref?
-        (fn [ui] (raw/cui_push_id_int ui id) (e ui) (raw/cui_pop_id ui) (record-rect! ui node))
-        (fn [ui] (raw/cui_push_id_int ui id) (e ui) (raw/cui_pop_id ui)))
-      (let [{:keys [begin end]} e
-            conditional (:conditional (:spec node))
-            body (if conditional
+  A node replays in its own id scope (the node's serial) when its spec's
+  :scope? says so: by default every leaf, and every generated widget not
+  given an explicit :id. CUI's per-id state (focus, animation, an input's
+  caret) then follows the node for its whole life and two buttons with one
+  label never collide. A container's children are read when it replays, so
+  appends and moves need no recompile."
+  [node e ref? scope?]
+  (let [id (:id node)
+        body (if (fn? e)
+               e
+               (let [{:keys [begin end]} e]
+                 (if (:conditional (:spec node))
                    (fn [ui] (when (begin ui) (walk-children! ui node) (end ui)))
-                   (fn [ui] (begin ui) (walk-children! ui node) (end ui)))]
-        (if ref? (fn [ui] (body ui) (record-rect! ui node)) body)))))
+                   (fn [ui] (begin ui) (walk-children! ui node) (end ui)))))
+        scoped (if scope?
+                 (fn [ui] (raw/cui_push_id_int ui id) (body ui) (raw/cui_pop_id ui))
+                 body)]
+    (if ref? (fn [ui] (scoped ui) (record-rect! ui node)) scoped)))
 
 (def ^:dynamic *stats*
   "When bound to an atom, counters accumulate into it: :frames, :work
@@ -147,35 +149,51 @@
   (when *stats* (swap! *stats* update :encodes (fnil inc 0)))
   (let [spec (:spec node)]
     (n/with-encoding node
-      #(vreset! (:emit node) (replay-fn node ((:compile spec) node props) (contains? props :ref))))
+      #(let [e ((:compile spec) node props)
+             scope? (if-let [f (:scope? spec)] (f props) (fn? e))]
+         (vreset! (:emit node) (replay-fn node e (contains? props :ref) scope?))))
     (vreset! (:props node) props)))
 
-(defn- sync-cell!
-  "Seed or overwrite the node's state cell from its prop, glimmer's rule for
-  user-edited values: only when the prop itself changed (or on create), so a
-  re-render that repeats the old value leaves the user's edit alone."
+(defn- cell-cap
+  "Room a cell needs for prop value v: bytes for text (:max-length, default
+  1024), elements for a growable array (:capacity, default twice the count
+  and at least 16)."
+  [{:keys [kind growable]} v props]
+  (cond (= [:text] kind) (max (long (or (:max-length props) 1024)) (inc (* 4 (count (str v)))))
+        growable (max (long (or (:capacity props) (max 16 (* 2 (count v))))) (count v))
+        :else nil))
+
+(defn- sync-cells!
+  "Seed or overwrite the node's state cells from their props, glimmer's rule
+  for user-edited values: only when the prop itself changed (or on create),
+  so a re-render that repeats the old value leaves the user's edit alone. A
+  text buffer whose :max-length grows is reallocated keeping its text."
   [node old-props props]
-  (when-let [{:keys [prop type]} (:cell (:spec node))]
+  (doseq [{:keys [prop kind growable] :as c} (:cells (:spec node))]
     (let [v (get props prop)
-          cap (when (= type :text)
-                (max (long (or (:max-length props) 1024)) (inc (* 4 (count (str v))))))]
-      (when (or (nil? @(:cell node))
-                (not= v (get old-props prop))
-                (and cap (> cap (n/cell-cap node))))
-        (n/set-cell! node type (if (and (nil? v) (= type :bool)) false v) (or cap 0))))))
+          v (cond growable (vec v)
+                  (and (nil? v) (= [:bool] kind)) false
+                  :else v)
+          cap (cell-cap c v props)
+          fresh? (or (nil? (n/cell node prop)) (not= (get props prop) (get old-props prop)))]
+      (cond fresh?
+            (do (n/set-cell! node prop kind v cap)
+                (when growable (n/set-cell! node (w/count-key prop) [:scalar :int] (count v) nil)))
+            (and cap (> cap (n/cell-cap node prop)))
+            (n/set-cell! node prop kind nil cap true)))))
 
 (defn create-node!
   "glimmer's :create!."
   [tag props]
   (let [node (n/make tag (w/spec-for tag))]
-    (sync-cell! node nil props)
+    (sync-cells! node nil props)
     (compile! node props)
     (when-let [f (:ref props)] (f node))
     node))
 
 (defn- patch-node! [_tag node old-props props]
   (when-not (= old-props props)
-    (sync-cell! node old-props props)
+    (sync-cells! node old-props props)
     (compile! node props)))
 
 (def backend
