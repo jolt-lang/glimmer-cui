@@ -199,8 +199,10 @@ implementation per platform:
 - GLFW: `glfwPostEmptyEvent`
 - SDL2: `SDL_PushEvent`
 
-It's a candidate to send upstream. Only the X11 path has been compiled and
-exercised so far.
+It's a candidate to send upstream. The X11 and Cocoa paths have been built and
+run with the window loop: the dashboard example's ticker thread wakes an
+idle loop on Linux and macOS. The Win32, GLFW and SDL2 paths have not been
+built yet.
 
 ## Running
 
