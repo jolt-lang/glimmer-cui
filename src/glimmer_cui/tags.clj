@@ -149,8 +149,8 @@
    :chat-composer
    {:c "int cui_chat_composer_ex(cui_ctx * ui, const char * id, char * buf, size_t cap, const cui_composer_opts * opts)"
     :fn raw/cui_chat_composer_ex
-    :args [[:str :id] [:buf :buf] [:opts :cui_composer_opts]]
-    :cells [{:prop :buf :kind [:text]}]
+    :args [[:str :id] [:buf :value] [:opts :cui_composer_opts]]
+    :cells [{:prop :value :kind [:text]}]
     :ret [:plain]}
    :chat-divider
    {:c "void cui_chat_divider(cui_ctx * ui, const char * label)"
@@ -203,8 +203,8 @@
    :code-editor
    {:c "cui_code_editor_result cui_code_editor_ex(cui_ctx * ui, const char * id, char * buf, size_t cap, const cui_code_editor_opts * opts)"
     :fn raw/cui_code_editor_ex
-    :args [[:str :id] [:buf :buf] [:opts :cui_code_editor_opts]]
-    :cells [{:prop :buf :kind [:text]}]
+    :args [[:str :id] [:buf :value] [:opts :cui_code_editor_opts]]
+    :cells [{:prop :value :kind [:text]}]
     :ret [:struct :cui_code_editor_result]}
    :color-picker
    {:c "bool cui_color_picker(cui_ctx * ui, const char * id, cui_color * value)"
@@ -290,6 +290,30 @@
     :args [[:str :id] [:cell-cap :keys [:struct :cui_curve_key]] [:opts :cui_curve_opts]]
     :cells [{:prop :keys :kind [:struct :cui_curve_key] :growable true}]
     :ret [:struct :cui_curve_result]}
+   :data-grid-cell
+   {:c "void cui_data_grid_cell(cui_ctx * ui)"
+    :fn raw/cui_data_grid_cell
+    :args []
+    :cells []
+    :ret nil}
+   :data-grid-cell-edit
+   {:c "bool cui_data_grid_cell_edit(cui_ctx * ui, char * buf, size_t cap)"
+    :fn raw/cui_data_grid_cell_edit
+    :args [[:buf :value]]
+    :cells [{:prop :value :kind [:text]}]
+    :ret [:bool]}
+   :data-grid-cell-text
+   {:c "void cui_data_grid_cell_text(cui_ctx * ui, const char * text)"
+    :fn raw/cui_data_grid_cell_text
+    :args [[:str :text]]
+    :cells []
+    :ret nil}
+   :data-grid-edit
+   {:c "bool cui_data_grid_edit(cui_ctx * ui, char * buf, size_t cap)"
+    :fn raw/cui_data_grid_edit
+    :args [[:buf :value]]
+    :cells [{:prop :value :kind [:text]}]
+    :ret [:bool]}
    :date-picker
    {:c "bool cui_date_picker_ex(cui_ctx * ui, const char * id, cui_date * value, const cui_date_opts * opts)"
     :fn raw/cui_date_picker_ex
@@ -533,14 +557,14 @@
    :inline-edit
    {:c "int cui_inline_edit_ex(cui_ctx * ui, const char * id, char * buf, size_t cap, const cui_inline_edit_opts * opts)"
     :fn raw/cui_inline_edit_ex
-    :args [[:str :id] [:buf :buf] [:opts :cui_inline_edit_opts]]
-    :cells [{:prop :buf :kind [:text]}]
+    :args [[:str :id] [:buf :value] [:opts :cui_inline_edit_opts]]
+    :cells [{:prop :value :kind [:text]}]
     :ret [:flags]}
    :input
    {:c "int cui_input_ex(cui_ctx * ui, const char * id, char * buf, size_t cap, const cui_input_opts * opts)"
     :fn raw/cui_input_ex
-    :args [[:str :id] [:buf :buf] [:opts :cui_input_opts]]
-    :cells [{:prop :buf :kind [:text]}]
+    :args [[:str :id] [:buf :value] [:opts :cui_input_opts]]
+    :cells [{:prop :value :kind [:text]}]
     :ret [:flags]}
    :inspector-group
    {:c "bool cui_inspector_group(cui_ctx * ui, const char * title, bool * open)"
@@ -623,7 +647,7 @@
    :log-view
    {:c "void cui_log_view_ex(cui_ctx * ui, const char * id, cui_log_buffer * buf, const cui_log_view_opts * opts)"
     :fn raw/cui_log_view_ex
-    :args [[:str :id] [:raw :buf] [:opts :cui_log_view_opts]]
+    :args [[:str :id] [:raw :value] [:opts :cui_log_view_opts]]
     :cells []
     :ret nil}
    :markdown
@@ -704,6 +728,24 @@
     :args [[:str :title]]
     :cells []
     :ret nil}
+   :node-input
+   {:c "bool cui_node_input_ex(cui_ctx * ui, int pin_id, const char * label, const cui_pin_opts * opts)"
+    :fn raw/cui_node_input_ex
+    :args [[:val :pin-id [:scalar :int]] [:str :label] [:opts :cui_pin_opts]]
+    :cells []
+    :ret [:bool]}
+   :node-link
+   {:c "bool cui_node_link(cui_ctx * ui, int link_id, int from_pin, int to_pin)"
+    :fn raw/cui_node_link
+    :args [[:val :link-id [:scalar :int]] [:val :from-pin [:scalar :int]] [:val :to-pin [:scalar :int]]]
+    :cells []
+    :ret [:bool]}
+   :node-output
+   {:c "bool cui_node_output_ex(cui_ctx * ui, int pin_id, const char * label, const cui_pin_opts * opts)"
+    :fn raw/cui_node_output_ex
+    :args [[:val :pin-id [:scalar :int]] [:str :label] [:opts :cui_pin_opts]]
+    :cells []
+    :ret [:bool]}
    :now-playing
    {:c "int cui_now_playing_ex(cui_ctx * ui, const char * id, cui_now_playing * np, const cui_now_playing_opts * opts)"
     :fn raw/cui_now_playing_ex
@@ -839,8 +881,8 @@
    :prop-text
    {:c "bool cui_prop_text_ex(cui_ctx * ui, const char * label, char * buf, size_t cap, const cui_prop_opts * opts)"
     :fn raw/cui_prop_text_ex
-    :args [[:str :label] [:buf :buf] [:opts :cui_prop_opts]]
-    :cells [{:prop :buf :kind [:text]}]
+    :args [[:str :label] [:buf :value] [:opts :cui_prop_opts]]
+    :cells [{:prop :value :kind [:text]}]
     :ret [:bool]}
    :prop-vec
    {:c "bool cui_prop_vec_ex(cui_ctx * ui, const char * label, float * value, int components, const cui_prop_opts * opts)"
@@ -983,8 +1025,8 @@
    :search
    {:c "int cui_search_ex(cui_ctx * ui, const char * id, char * buf, size_t cap, const cui_input_opts * opts)"
     :fn raw/cui_search_ex
-    :args [[:str :id] [:buf :buf] [:opts :cui_input_opts]]
-    :cells [{:prop :buf :kind [:text]}]
+    :args [[:str :id] [:buf :value] [:opts :cui_input_opts]]
+    :cells [{:prop :value :kind [:text]}]
     :ret [:flags]}
    :secondary
    {:c "void cui_secondary(cui_ctx * ui, const char * text)"
@@ -1205,8 +1247,8 @@
    :tag-input
    {:c "bool cui_tag_input_ex(cui_ctx * ui, const char * id, char * buf, size_t cap, const cui_tag_opts * opts)"
     :fn raw/cui_tag_input_ex
-    :args [[:str :id] [:buf :buf] [:opts :cui_tag_opts]]
-    :cells [{:prop :buf :kind [:text]}]
+    :args [[:str :id] [:buf :value] [:opts :cui_tag_opts]]
+    :cells [{:prop :value :kind [:text]}]
     :ret [:bool]}
    :terminal
    {:c "cui_terminal_result cui_terminal_ex(cui_ctx * ui, const char * id, cui_terminal_buffer * t, const cui_terminal_opts * opts)"
@@ -1235,8 +1277,8 @@
    :textarea
    {:c "int cui_textarea_ex(cui_ctx * ui, const char * id, char * buf, size_t cap, const cui_input_opts * opts)"
     :fn raw/cui_textarea_ex
-    :args [[:str :id] [:buf :buf] [:opts :cui_input_opts]]
-    :cells [{:prop :buf :kind [:text]}]
+    :args [[:str :id] [:buf :value] [:opts :cui_input_opts]]
+    :cells [{:prop :value :kind [:text]}]
     :ret [:flags]}
    :theme-switcher
    {:c "bool cui_theme_switcher(cui_ctx * ui, int * mode, bool with_system)"
@@ -1370,6 +1412,12 @@
     :args [[:str :label] [:val :depth [:scalar :int]] [:val :has-children [:bool]] [:cell :open [:bool]] [:str :icon]]
     :cells [{:prop :open :kind [:bool]}]
     :ret [:bool]}
+   :tree-table-name
+   {:c "void cui_tree_table_name(cui_ctx * ui, const char * label, const char * icon)"
+    :fn raw/cui_tree_table_name
+    :args [[:str :label] [:str :icon]]
+    :cells []
+    :ret nil}
    :treemap
    {:c "int cui_treemap_ex(cui_ctx * ui, const char * id, const cui_viz_item * items, int count, const cui_treemap_opts * opts)"
     :fn raw/cui_treemap_ex
@@ -1625,6 +1673,14 @@
     :args [[:str :label] [:opts :cui_menu_bar_menu_opts]]
     :cells []
     :ret [:bool]}
+   :node-content
+   {:c "void cui_node_content_begin(cui_ctx * ui)"
+    :begin raw/cui_node_content_begin
+    :end raw/cui_node_content_end
+    :conditional false
+    :args []
+    :cells []
+    :ret nil}
    :popover
    {:c "bool cui_popover_begin(cui_ctx * ui, const char * id, const cui_popover_opts * opts)"
     :begin raw/cui_popover_begin

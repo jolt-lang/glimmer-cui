@@ -54,7 +54,8 @@ lifecycle:
 
 ## Tags
 
-Every CUI component is a tag: 238 leaves and 36 containers. `jolt gen`
+Every CUI component is a tag: 246 generated leaves, 37 generated containers,
+and the hand-written protocols below. `jolt gen`
 generates the table (`src/glimmer_cui/tags.clj`) from CUI's headers.
 cui-jolt's `gen/gen.py` classifies each parameter, so a tag's props follow
 the same rules as `cui.core`'s arguments. The tag is the C name minus `cui_`
@@ -84,7 +85,8 @@ the valid ones. Bare strings render as `:text`.
 - **Out-parameters** are node-owned C cells, seeded from their prop: a
   scalar (`:index`), a struct as a map (`:value` of a date or color picker),
   an array from a vector (a toggle group's `:values`), or a text buffer
-  (`:max-length` bytes, default 1024). A patch overwrites a cell only when its
+  (`:max-length` bytes, default 1024). A text buffer parameter named `buf`
+  is the `:value` prop, as on `:input`. A patch overwrites a cell only when its
   prop changed, so a re-render never clobbers an edit in progress.
 - **Editable arrays** (`kv-editor`, `curve-editor`, `query-builder`, …) take
   `pairs`/`keys` as a vector and get room for `:capacity` elements (default
@@ -121,11 +123,53 @@ and `:checkbox` use `:checked`, and `:label`/`:secondary`/`:heading` use
 `:secondary` `:button` `:switch` `:checkbox` `:slider` `:input` `:progress`
 `:spacer` `:separator`.
 
-**Left out.** A few CUI protocols decide their children mid-frame: data grid
-and tree table rows, kanban columns and drops, the node editor, virtual
-lists, swipe items, reorderable lists and card stacks. Toasts are actions,
-not components. Use `:cui/immediate` for the protocols and `with-ui` for
-toasts.
+Toasts are actions, not components: show them with `with-ui`.
+
+## Rows and protocols
+
+Some CUI components don't fit begin, children, end. `glimmer-cui.protocols`
+implements them as containers that replay themselves.
+
+**Rows decided mid-frame.** A virtual list, data grid or tree table builds
+only the rows in view, and only CUI knows which rows those are, once its
+begin call has run. These tags take a `:row` function instead of children:
+
+```clojure
+[:data-grid {:columns [{:title "Name" :width 200} {:title "Email"}]
+             :row-count (count @people) :selected sel   ; an atom of bools
+             :on-row-click #(reset! current %)
+             :row (fn [i]
+                    (let [p (nth @people i)]
+                      (list [:data-grid-cell-edit {:value (:name p)
+                                                   :on-change #(swap! people assoc-in [i :name] %)}]
+                            [:data-grid-cell-text {:text (:email p)}])))}]
+```
+
+Each frame the node asks CUI for the rows in view and mounts a glimmer
+subtree for each row that came into view. It walks those rows and unmounts
+the ones that scrolled away, so a 10,000-row list mounts about a screenful. A
+row is an ordinary reactive component. It re-renders when a ratom it read
+changes, or when the `:row` function changes. A row function returns one
+element, a seq of them (wrapped in `:group`), or nil.
+
+| Tag | Row function gets | Events |
+|---|---|---|
+| `:virtual-list` (`:count`, `:row-height`, `:height`) | the row index | |
+| `:data-grid` (`:columns`, `:row-count`, `cui_grid_opts`) | the row index; cells are `:data-grid-cell-text`, `:data-grid-cell-edit`, or `:data-grid-cell` followed by components | `:on-row-click i` |
+| `:tree-table` (`:columns`, `:nodes`, `cui_tree_table_opts`) | the node index; start with `:tree-table-name` | `:on-change nodes` (CUI set open or selected flags), `:on-expand`, `:on-collapse`, `:on-activate`, `:on-load [nodes]`, `:on-sort` |
+
+**Structures that report at the end.** These take ordinary children:
+
+| Tag | Children | Events |
+|---|---|---|
+| `:kanban` | `:kanban-column` (`:title`, `cui_kanban_column_opts`) holding `:kanban-card` (`:card-id`) | `:on-move {:card :from-column :to-column :to-index}`; a column's `:on-add`, a card's `:on-click` |
+| `:reorder` | items, in display order | `:on-reorder order`: the new order as indices into the current one |
+| `:swipe-item` (`:left`, `:right` actions) | the row content | `:on-action {:side :left :index 0}` |
+| `:card-stack` (`cui_card_stack_opts`) | cards, the first on top | `:on-swipe :left` or `:right` |
+| `:node-editor` (`:view`, `cui_node_editor_opts`) | `:node` (`:node-id`, `:x`, `:y`, `:title`) holding `:node-input`, `:node-output`, `:node-content`; and `:node-link` (`:link-id`, `:from-pin`, `:to-pin`) | `:on-link-create [from-pin to-pin]`, `:on-link-remove id`, `:on-node-delete id`, `:on-view-change`; a node's `:on-move {:x :y}` and `:on-select` |
+
+Drops, links and deletions only report what the user did; you change your
+data, as in CUI.
 
 ## Escape hatches
 
@@ -192,12 +236,10 @@ bare CUI context (CUI's own embedding path, which needs no window):
 While a session is open the backend counts as running, so re-renders are
 scheduled exactly as in the window loop.
 
-## Not done yet
+## Known limits
 
-- The window loop (`run-app`) and the wake have not been run on a display.
-  Everything behind `render-frame!` is covered headlessly. The dashboard
-  example checks both: its chart moves once a second only if a `swap!` from
-  the ticker thread wakes the idle loop.
-- The mid-frame protocols listed under Tags have no tags. They need
-  per-frame values passed to children, which glimmer's retained tree doesn't
-  express.
+- An atom inside an option struct is encoded with its length when the
+  widget's props last changed. Change a data grid's `:selected` vector
+  together with `:row-count`, so the grid recompiles at the new size.
+- `:on-result` fires on every change of a return value, including a
+  one-frame result going back to "none".

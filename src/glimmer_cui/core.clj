@@ -32,7 +32,9 @@
             [glimmer.backend :as b]
             [glimmer.core :as g]
             [glimmer-cui.node :as n]
-            [glimmer-cui.widgets :as w]))
+            [glimmer-cui.widgets :as w]
+            ;; registers the components with custom replays
+            [glimmer-cui.protocols]))
 
 (ffi/defcfn ^:private cui-app-wake "cui_app_wake" [:pointer] :void)
 
@@ -79,13 +81,6 @@
     (raw/cui_last_rect p ui)
     (vreset! (:rect node) (impl/read-struct :cui_rect p))))
 
-(defn- walk-children!
-  "Replay a node's children, in order. Each child's replay is a closure
-  compiled when its props last changed (see replay-fn)."
-  [ui node]
-  (let [cs @(:children node)]
-    (dotimes [i (count cs)] (@(:emit (nth cs i)) ui))))
-
 (defn- replay-fn
   "The closure a frame calls to replay `node`, built from the widget's
   compiled replay `e` once per props change, so a frame does no lookups, no
@@ -96,15 +91,20 @@
   given an explicit :id. CUI's per-id state (focus, animation, an input's
   caret) then follows the node for its whole life and two buttons with one
   label never collide. A container's children are read when it replays, so
-  appends and moves need no recompile."
+  appends and moves need no recompile. A container whose compile returns
+  {:replay f} replays itself with f, walking its children as its CUI
+  protocol requires."
   [node e ref? scope?]
   (let [id (:id node)
-        body (if (fn? e)
-               e
+        body (cond
+               (fn? e) e
+               ;; a protocol container that walks its own children (rows)
+               (:replay e) (:replay e)
+               :else
                (let [{:keys [begin end]} e]
                  (if (:conditional (:spec node))
-                   (fn [ui] (when (begin ui) (walk-children! ui node) (end ui)))
-                   (fn [ui] (begin ui) (walk-children! ui node) (end ui)))))
+                   (fn [ui] (when (begin ui) (n/walk-children! ui node) (end ui)))
+                   (fn [ui] (begin ui) (n/walk-children! ui node) (end ui)))))
         scoped (if scope?
                  (fn [ui] (raw/cui_push_id_int ui id) (body ui) (raw/cui_pop_id ui))
                  body)]
@@ -126,7 +126,7 @@
       (binding [impl/*arena* arena]
         (let [[calls _] (reset-vals! ui-calls [])]
           (doseq [f calls] (f ui)))
-        (walk-children! ui root))
+        (n/walk-children! ui root))
       (finally
         ;; cui.core calls from :cui/immediate and with-ui allocated here;
         ;; CUI may read them until this frame is painted

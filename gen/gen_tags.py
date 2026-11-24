@@ -60,24 +60,24 @@ filter_bar chat_divider typing_indicator presence dock_separator source_list
 citation toc toc_anchor range_calendar time_dial avatar_upload shortcut_label
 toolbar_separator toolbar_spacer status_bar_spacer inspector_group emoji
 response_status table_row table_cell table_cell_text tree_cell
+node_link data_grid_cell data_grid_cell_text data_grid_cell_edit data_grid_edit
+tree_table_name
 '''.split()
 
 # Functions with an options struct that are not standalone components:
-# actions (a toast queues a new toast on every call), and halves of
-# protocols whose children depend on values CUI returns mid-frame (data grid
-# rows, kanban drops, node editor links). Those stay :cui/immediate islands.
+# actions (a toast queues a new toast on every call), and the begin halves
+# of protocols glimmer-cui.protocols implements by hand (data grid rows,
+# kanban drops, node editor links, card stacks).
 NOT_LEAVES = {
     'cui_toast_ex',
     'cui_data_grid_begin_ex', 'cui_tree_table_begin_ex', 'cui_kanban_column_begin_ex',
-    'cui_node_editor_begin_ex', 'cui_node_begin_ex', 'cui_node_input_ex', 'cui_node_output_ex',
-    'cui_card_stack_begin',
+    'cui_node_editor_begin_ex', 'cui_node_begin_ex', 'cui_card_stack_begin',
 }
 
-# Scope macros left out for the same reason: virtual_list's children are the
-# rows in [*first, *last), known only once begin has run.
-NOT_CONTAINERS = {'cui_virtual_list',
-                  # scopes that only live inside a parent left out above
-                  'cui_card_stack_item', 'cui_node_content', 'cui_reorder_item'}
+# Scope macros glimmer-cui.protocols implements by hand: virtual_list's
+# children are the rows in [*first, *last), known only once begin has run,
+# and reorder and card stack items are numbered by their parent.
+NOT_CONTAINERS = {'cui_virtual_list', 'cui_card_stack_item', 'cui_reorder_item'}
 
 # Functions whose int return is CUI_CHANGED / CUI_SUBMITTED flags.
 FLAG_RETURNS = {'cui_input_ex', 'cui_textarea_ex', 'cui_search_ex', 'cui_inline_edit_ex'}
@@ -115,7 +115,9 @@ def args_of(cname, params):
     while i < len(params):
         pn, t = params[i]
         k, absorb = G.param_kind(params, i)
-        prop = G.kebab(PROP_RENAMES.get((cname, pn), pn) or f'a{i}')
+        # a text buffer named just `buf` is the field's value, as on :input
+        pn2 = 'value' if pn == 'buf' and not any(q == 'value' for q, _ in params) else pn
+        prop = G.kebab(PROP_RENAMES.get((cname, pn), pn2) or f'a{i}')
         nxt = params[i + 1] if i + 1 < len(params) else None
         nxt2 = params[i + 2] if i + 2 < len(params) else None
         if (k.startswith('ref ') and not absorb and nxt and nxt[0] == 'count'

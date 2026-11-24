@@ -95,6 +95,27 @@
   (raw/cui_input_mouse_button (:ui s) 0 true) (step! s)
   (raw/cui_input_mouse_button (:ui s) 0 false) (step! s))
 
+(defn drag!
+  "Press at [x0 y0], move to [x1 y1] over `steps` frames, release: a drag
+  as a real pointer makes it."
+  [s [x0 y0] [x1 y1] & {:keys [steps] :or {steps 12}}]
+  (move! s [x0 y0]) (step! s)
+  (raw/cui_input_mouse_button (:ui s) 0 true) (step! s)
+  (dotimes [i steps]
+    (let [t (/ (inc i) (double steps))]
+      (move! s [(+ x0 (* t (- x1 x0))) (+ y0 (* t (- y1 y0)))])
+      (step! s)))
+  (step! s 2)
+  (raw/cui_input_mouse_button (:ui s) 0 false)
+  (step! s 3))
+
+(defn scroll!
+  "Scroll by dy points over the point [x y], then let it settle."
+  [s [x y] dy]
+  (move! s [x y])
+  (raw/cui_input_scroll (:ui s) (float 0) (float dy))
+  (step! s 30))
+
 (defn type-text! [{:keys [ui] :as s} text]
   (impl/call-with-arena #(raw/cui_input_text ui (impl/str-ptr text)))
   (step! s))

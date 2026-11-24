@@ -216,6 +216,24 @@
       (when (and (seq texts) (text-dirty? r))
         (dotimes [i (count texts)] (report-cell! node (nth texts i) single?))))))
 
+(defn encode-args
+  "Encode tags-style `args` from props `p` for `node`, once per props change:
+  {:args [...] :refs live-refs}. `extra` names further props the caller
+  consumes itself (a :row function), so the options struct leaves them out."
+  ([node p args] (encode-args node p args #{}))
+  ([node p args extra]
+   (let [wb (volatile! [])
+         as (build-args node p wb args (into (arg-props args (:cells (:spec node))) extra))]
+     {:args as :refs (live-refs wb)})))
+
+(defn with-live
+  "f (fn [ui] ...) wrapped to sync the atoms inside its option structs: their
+  changes go to C before the call, and CUI's edits come back after it."
+  [refs f]
+  (if (seq refs)
+    (fn [ui] (push-live! refs) (let [r (f ui)] (pull-live! refs) r))
+    f))
+
 (defn- call-and-report [node p entry f conditional]
   (let [wb (volatile! [])
         {:keys [args cells ret]} entry
@@ -356,7 +374,17 @@
   "Tag -> widget spec: the hand-written ones over the generated ones."
   (merge generated hand-written))
 
+(defonce ^:private extra-specs (atom {}))
+
+(defn register!
+  "Add widget specs (tag -> spec) over the built-in ones. glimmer-cui.protocols
+  registers the components whose CUI protocols need custom replays."
+  [m]
+  (swap! extra-specs merge m)
+  nil)
+
 (defn spec-for [tag]
-  (or (get specs tag)
+  (or (get @extra-specs tag)
+      (get specs tag)
       (throw (ex-info (str "glimmer-cui: unknown tag " tag)
-                      {:tag tag :valid (sort (map str (keys specs)))}))))
+                      {:tag tag :valid (sort (map str (keys (merge specs @extra-specs))))}))))

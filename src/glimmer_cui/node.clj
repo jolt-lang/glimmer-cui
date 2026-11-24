@@ -106,6 +106,7 @@
    :cell-vals (volatile! {})      ; prop -> last value seen, for edge events
    :live (volatile! [])           ; atoms inside option structs, synced each frame
    :children (volatile! [])
+   :state (volatile! {})          ; a protocol container's own state (mounted rows)
    :rect (volatile! nil)})
 
 (defn with-encoding
@@ -260,9 +261,11 @@
 (defn note-cell-val! [node k v] (vswap! (:cell-vals node) assoc k v) nil)
 
 (defn dispose!
-  "Retire the node's memory and its children's. The node must not be walked
-  again."
+  "Retire the node's memory and its children's, after the spec's :dispose
+  hook (a node that mounts rows of its own unmounts them there). The node
+  must not be walked again."
   [node]
+  (when-let [f (:dispose (:spec node))] (f node))
   (doseq [c @(:children node)] (dispose! c))
   (vreset! (:children node) [])
   (vreset! (:emit node) nil)
@@ -272,6 +275,23 @@
   nil)
 
 ;; ---- children
+
+(defn walk-children!
+  "Replay a node's children, in order. Each child's replay is a closure
+  compiled when its props last changed."
+  [ui node]
+  (let [cs @(:children node)]
+    (dotimes [i (count cs)] (@(:emit (nth cs i)) ui))))
+
+(defn walk-children-with!
+  "Replay a node's children like walk-children!, calling (before ui i) and
+  (after ui i) around child i: CUI protocols that number their items."
+  [ui node before after]
+  (let [cs @(:children node)]
+    (dotimes [i (count cs)]
+      (before ui i)
+      (@(:emit (nth cs i)) ui)
+      (after ui i))))
 
 (defn- index-of [v x] (first (keep-indexed (fn [i y] (when (identical? x y) i)) v)))
 
