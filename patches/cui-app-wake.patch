@@ -1,0 +1,188 @@
+diff --git a/include/cui/cui_app.h b/include/cui/cui_app.h
+index e4b31f0..c57bd6c 100644
+--- a/include/cui/cui_app.h
++++ b/include/cui/cui_app.h
+@@ -69,6 +69,12 @@ CUI_API void cui_app_destroy(cui_app *app);
+  * new frame. Returns false once the window was closed or cui_app_quit was
+  * called. */
+ CUI_API bool cui_app_frame(cui_app *app);
++/* Wakes a cui_app_frame that is waiting for input, so the next frame begins
++ * now. Safe to call from any thread, as long as the app exists; a wake sent
++ * while no wait is in progress makes the next wait return at once. Use it
++ * when state the UI shows changes outside the UI thread (a worker, a REPL).
++ * Unlike cui_app_ui and friends, NULL is not the running app: pass the app. */
++CUI_API void cui_app_wake(cui_app *app);
+ CUI_API cui_ctx *cui_app_ui(cui_app *app);
+ 
+ /* Creates the app, calls frame() until the window closes, destroys it. */
+diff --git a/src/platform/cui_app.c b/src/platform/cui_app.c
+index a50b98e..a3aceec 100644
+--- a/src/platform/cui_app.c
++++ b/src/platform/cui_app.c
+@@ -121,6 +121,8 @@ static cui_app *cui__app_or_current(cui_app *app) { return app ? app : cui__curr
+ 
+ cui_ctx *cui_app_ui(cui_app *app) { app = cui__app_or_current(app); return app ? app->ui : NULL; }
+ void cui_app_quit(cui_app *app) { app = cui__app_or_current(app); if (app) app->running = false; }
++/* no cui__app_or_current: the current app is a UI-thread notion and this is called from others */
++void cui_app_wake(cui_app *app) { if (app && app->plat) cui__plat_wake(app); }
+ bool cui_app_is_software(cui_app *app) { app = cui__app_or_current(app); return app && app->software; }
+ void *cui_app_native_window(cui_app *app) { app = cui__app_or_current(app); return app ? cui__plat_native(app) : NULL; }
+ const char *cui_app_backend(cui_app *app) { (void)app; return cui__plat_name(); }
+diff --git a/src/platform/cui_app_cocoa.m b/src/platform/cui_app_cocoa.m
+index 8bdc84f..4bdaaf8 100644
+--- a/src/platform/cui_app_cocoa.m
++++ b/src/platform/cui_app_cocoa.m
+@@ -435,6 +435,9 @@ void cui__plat_set_size(cui_app *app, int w, int h) {
+ 
+ void *cui__plat_native(cui_app *app) { return (__bridge void *)cui__p(app).window; }
+ 
++/* postEvent:atStart: may be sent from any thread; the pool covers callers without one */
++void cui__plat_wake(cui_app *app) { (void)app; @autoreleasepool { cui__mac_wake(); } }
++
+ void cui__plat_wait(cui_app *app, double timeout) {
+     @autoreleasepool {
+         NSDate *until = timeout < 0 ? [NSDate distantFuture] : [NSDate dateWithTimeIntervalSinceNow:timeout];
+diff --git a/src/platform/cui_app_glfw.c b/src/platform/cui_app_glfw.c
+index 2d17e27..6cbed79 100644
+--- a/src/platform/cui_app_glfw.c
++++ b/src/platform/cui_app_glfw.c
+@@ -199,6 +199,8 @@ void cui__plat_set_title(cui_app *app, const char *title) { glfwSetWindowTitle(c
+ void cui__plat_set_size(cui_app *app, int w, int h) { glfwSetWindowSize(cui__g(app)->win, w, h); }
+ void *cui__plat_native(cui_app *app) { return cui__g(app)->win; }
+ 
++void cui__plat_wake(cui_app *app) { (void)app; glfwPostEmptyEvent(); }   /* any thread */
++
+ void cui__plat_wait(cui_app *app, double timeout) {
+     (void)app;
+     if (timeout < 0) glfwWaitEvents();
+diff --git a/src/platform/cui_app_sdl2.c b/src/platform/cui_app_sdl2.c
+index 7a81681..76c40d5 100644
+--- a/src/platform/cui_app_sdl2.c
++++ b/src/platform/cui_app_sdl2.c
+@@ -261,6 +261,15 @@ static void cui__sdl_event(cui_app *app, SDL_Event *e) {
+     }
+ }
+ 
++/* SDL_PushEvent is thread safe; cui__sdl_event ignores the user event, the wait just ends */
++void cui__plat_wake(cui_app *app) {
++    (void)app;
++    SDL_Event e;
++    SDL_zero(e);
++    e.type = SDL_USEREVENT;
++    SDL_PushEvent(&e);
++}
++
+ void cui__plat_wait(cui_app *app, double timeout) {
+     SDL_Event e;
+     if (timeout != 0) {
+diff --git a/src/platform/cui_app_win32.c b/src/platform/cui_app_win32.c
+index f537d5b..4ff2cf2 100644
+--- a/src/platform/cui_app_win32.c
++++ b/src/platform/cui_app_win32.c
+@@ -584,6 +584,12 @@ void cui__plat_set_size(cui_app *app, int width, int height) {
+ 
+ void *cui__plat_native(cui_app *app) { return cui__w(app)->hwnd; }
+ 
++/* PostMessage may be called from any thread; the wait's mask includes QS_POSTMESSAGE */
++void cui__plat_wake(cui_app *app) {
++    cui__win32 *w = cui__w(app);
++    if (w && w->hwnd) PostMessageW(w->hwnd, WM_NULL, 0, 0);
++}
++
+ void cui__plat_wait(cui_app *app, double timeout) {
+     if (timeout != 0) {
+         /* QS_ALLINPUT without QS_RAWINPUT: CUI does not register for raw input, and Wine
+diff --git a/src/platform/cui_app_x11.c b/src/platform/cui_app_x11.c
+index 9f297f7..1a2e41f 100644
+--- a/src/platform/cui_app_x11.c
++++ b/src/platform/cui_app_x11.c
+@@ -10,6 +10,8 @@
+ #include <X11/cursorfont.h>
+ #include <X11/Xresource.h>
+ #include <dlfcn.h>
++#include <errno.h>
++#include <fcntl.h>
+ #include <locale.h>
+ #include <sys/select.h>
+ #include <time.h>
+@@ -85,6 +87,8 @@ typedef struct {
+     Window xdnd_source;
+     int xdnd_version;
+     float xdnd_x, xdnd_y;
++    /* cui_app_wake: a self-pipe the wait selects on next to the X connection */
++    int wake_fd[2];
+ } cui__x11;
+ 
+ static cui__x11 *cui__x(cui_app *app) { return app->plat; }
+@@ -257,6 +261,11 @@ bool cui__plat_init(cui_app *app) {
+     pi.set_clipboard = cui__x11_set_clip;
+     pi.set_cursor = cui__x11_set_cursor;
+     cui_set_platform(app->ui, &pi);
++    if (pipe(x->wake_fd) == 0) {
++        for (int i = 0; i < 2; i++) fcntl(x->wake_fd[i], F_SETFL, fcntl(x->wake_fd[i], F_GETFL) | O_NONBLOCK);
++    } else {
++        x->wake_fd[0] = x->wake_fd[1] = -1;   /* no wake; waits still end on input and timeouts */
++    }
+     return true;
+ }
+ 
+@@ -279,6 +288,7 @@ void cui__plat_shutdown(cui_app *app) {
+     XDestroyWindow(x->dpy, x->win);
+     XFreeColormap(x->dpy, x->cmap);
+     XCloseDisplay(x->dpy);
++    if (x->wake_fd[0] >= 0) { close(x->wake_fd[0]); close(x->wake_fd[1]); }
+     free(x->clip_owned);
+     free(x->clip_read);
+     free(x);
+@@ -351,6 +361,14 @@ void cui__plat_present(cui_app *app, const void *bgra, int w, int h, int stride)
+     XFlush(x->dpy);
+ }
+ 
++void cui__plat_wake(cui_app *app) {
++    cui__x11 *x = cui__x(app);
++    if (!x || x->wake_fd[1] < 0) return;
++    char b = 1;
++    /* EAGAIN means the pipe is full, so a wake is already pending */
++    while (write(x->wake_fd[1], &b, 1) < 0 && errno == EINTR) {}
++}
++
+ bool cui__plat_present_part(cui_app *app, const void *bgra, int w, int h, int stride, int px, int py, int pw, int ph) {
+     cui__x11 *x = cui__x(app);
+     if (!x->image || x->image->width != w || x->image->height != h) return false;
+@@ -711,17 +729,22 @@ void cui__plat_wait(cui_app *app, double timeout) {
+     cui__x11 *x = cui__x(app);
+     XFlush(x->dpy);
+     if (timeout != 0 && !XPending(x->dpy)) {
+-        int fd = ConnectionNumber(x->dpy);
++        int fd = ConnectionNumber(x->dpy), wfd = x->wake_fd[0];
+         fd_set set;
+         FD_ZERO(&set);
+         FD_SET(fd, &set);
++        if (wfd >= 0) FD_SET(wfd, &set);
+         struct timeval tv, *ptv = NULL;
+         if (timeout > 0) {
+             tv.tv_sec = (long)timeout;
+             tv.tv_usec = (long)((timeout - (double)tv.tv_sec) * 1e6);
+             ptv = &tv;
+         }
+-        select(fd + 1, &set, NULL, NULL, ptv);
++        select((wfd > fd ? wfd : fd) + 1, &set, NULL, NULL, ptv);
++    }
++    if (x->wake_fd[0] >= 0) {   /* drain: one frame answers every wake sent before it */
++        char buf[64];
++        while (read(x->wake_fd[0], buf, sizeof buf) > 0) {}
+     }
+     while (XPending(x->dpy)) {
+         XEvent ev;
+diff --git a/src/platform/cui_platform.h b/src/platform/cui_platform.h
+index b8d11e2..61b7fd1 100644
+--- a/src/platform/cui_platform.h
++++ b/src/platform/cui_platform.h
+@@ -48,6 +48,7 @@ void cui__plat_present(cui_app *app, const void *bgra, int w, int h, int stride)
+  * backend cannot, and the whole buffer is shown instead */
+ bool cui__plat_present_part(cui_app *app, const void *bgra, int w, int h, int stride, int x, int y, int pw, int ph);
+ void cui__plat_wait(cui_app *app, double timeout);   /* < 0 waits for the next event */
++void cui__plat_wake(cui_app *app);                   /* any thread: make a pending or the next wait return */
+ void cui__plat_metrics(cui_app *app, float *w, float *h, float *scale, int *fb_w, int *fb_h);
+ void cui__plat_set_title(cui_app *app, const char *title);
+ void cui__plat_set_size(cui_app *app, int w, int h);

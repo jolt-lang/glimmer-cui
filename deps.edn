@@ -1,0 +1,47 @@
+{:jolt/min-version "0.8.25"
+
+ :paths ["src"]
+
+ ;; glimmer is the portable reactive core (ratoms, components, reconciler);
+ ;; cui-jolt is the CUI binding, whose marshalling tables (cui.spec, cui.impl)
+ ;; this backend reuses to encode option structs once per prop change.
+ :deps {jolt-lang/glimmer    {:git/url "https://github.com/jolt-lang/glimmer"
+                              :git/tag "v0.2.1" :git/sha "a61f5ef71f56033c7a6765f400a5978ee76b7b6b"}
+        jlt-commons/cui-jolt {:git/url "https://github.com/jlt-commons/cui-jolt"
+                              :git/sha "a981b6cd3e99d1866497306b5afa5e70a640d46c"}}
+
+ ;; libcui built from CUI a8f71c0 (the commit cui-jolt's bindings were
+ ;; generated from) plus patches/cui-app-wake.patch, which adds cui_app_wake.
+ :jolt/native [{:name "cui"
+                :linux  ["native/libcui.so"]
+                :darwin ["native/libcui.dylib"]
+                :build  "native"}]
+
+ :aliases {:examples {:extra-paths ["examples"]}
+           :test  {:extra-paths ["test" "examples"] :main-opts ["-m" "glimmer-cui.test-runner"]}
+           :bench {:extra-paths ["test" "examples"] :main-opts ["-m" "glimmer-cui.bench"]}
+           :shots {:extra-paths ["test" "examples"] :main-opts ["-m" "glimmer-cui.shots"]}}
+
+ :tasks
+ {:requires ([babashka.fs :as fs])
+  :init (do (def mac? (re-find #"(?i)mac" (System/getProperty "os.name")))
+            (def lib-file (if mac? "libcui.dylib" "libcui.so"))
+            (def cui-commit "a8f71c0"))
+  native {:doc "Clone CUI at the pinned commit, apply the wake patch, build native/libcui"
+          :task (when-not (fs/exists? (str "native/" lib-file))
+                  (when-not (fs/exists? "native/CUI")
+                    (shell "git" "clone" "https://github.com/yappologistic/CUI.git" "native/CUI")
+                    (shell {:dir "native/CUI"} "git" "checkout" cui-commit)
+                    (shell {:dir "native/CUI"} "git" "apply" "../../patches/cui-app-wake.patch"))
+                  (shell "cmake" "-S" "native/CUI" "-B" "native/build" "-DCMAKE_BUILD_TYPE=Release"
+                         "-DCUI_BUILD_SHARED=ON" "-DCUI_BUILD_EXAMPLES=OFF" "-DCUI_BUILD_TESTS=OFF")
+                  (shell "cmake" "--build" "native/build" "--config" "Release" "--parallel")
+                  (fs/copy (str "native/build/" lib-file) (str "native/" lib-file) {:replace-existing true}))}
+  test  {:doc "Headless test suite (no display needed)" :task "jolt -M:test"}
+  bench {:doc "Per-frame cost: glimmer-cui replay vs cui-jolt direct mode" :task "jolt -M:bench"}
+  floor {:doc "The same UI as bench, submitted straight from C: the floor any binding sits on"
+         :task (do (fs/create-dirs "target")
+                   (shell "cc" "-O2" "-Inative/CUI/include" "test/c/floor.c" "-Lnative/build" "-lcui"
+                          "-Wl,-rpath,native/build" "-o" "target/floor")
+                   (shell "target/floor"))}
+  shots {:doc "Render the examples headlessly to PNG in target/" :task "jolt -M:shots"}}}

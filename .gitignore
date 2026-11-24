@@ -1,0 +1,18 @@
+target/
+.cpcache/
+.jolt/
+.nrepl-port
+native/CUI/
+native/build/
+native/*.so
+native/*.dylib
+native/cmake.log
+
+# agent and tooling state
+.beads/
+.claude/
+.cursor/
+.aider*
+CLAUDE.md
+AGENTS.md
+GEMINI.md
